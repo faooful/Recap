@@ -127,10 +127,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showPreviewWindow(session: session)
             }
         } else {
-            updateStatusIcon(recording: true)
             await recorder.startRecording()
+
             if recorder.isRecording {
+                // Recording started successfully
+                updateStatusIcon(recording: true)
                 overlayController.show(recorder: recorder)
+                // Close the popover so it doesn't cover the screen
+                popover.performClose(nil)
+            } else {
+                // Recording failed to start — show the popover with the error
+                updateStatusIcon(recording: false)
+                if let button = statusItem.button, !popover.isShown {
+                    popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
             }
         }
     }

@@ -27,6 +27,8 @@ struct MenuBarView: View {
                 recordingView
             } else if let session = recorder.currentSession, session.state == .complete {
                 completedView(session: session)
+            } else if let session = recorder.currentSession, case .failed(let msg) = session.state {
+                failedView(message: msg)
             } else if showHistory {
                 historyView
             } else {
@@ -40,7 +42,7 @@ struct MenuBarView: View {
         }
         .frame(width: 320)
         .task {
-            await recorder.refreshAvailableContent()
+            await recorder.checkPermission()
         }
     }
 
@@ -73,6 +75,13 @@ struct MenuBarView: View {
 
     private var setupView: some View {
         VStack(spacing: 12) {
+            // Permission / error banner
+            if recorder.permissionStatus == .denied {
+                permissionBanner
+            } else if let error = recorder.errorMessage {
+                errorBanner(message: error)
+            }
+
             // Record mode picker
             Picker("Capture", selection: $recordMode) {
                 ForEach(RecordMode.allCases) { mode in
@@ -130,8 +139,84 @@ struct MenuBarView: View {
             .buttonStyle(.borderedProminent)
             .tint(.red.opacity(0.85))
             .padding(.horizontal, 16)
+            .disabled(recorder.permissionStatus == .checking)
         }
         .padding(.vertical, 12)
+    }
+
+    // MARK: - Permission & Error Banners
+
+    private var permissionBanner: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "lock.shield")
+                    .foregroundColor(.orange)
+                    .font(.title3)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Screen Recording Access Needed")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text("Recap needs permission to capture your screen.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+
+            Button(action: {
+                recorder.openScreenRecordingSettings()
+            }) {
+                HStack {
+                    Image(systemName: "gear")
+                        .font(.caption)
+                    Text("Grant Access in System Settings")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+
+            Button("Re-check Permission") {
+                Task { await recorder.checkPermission() }
+            }
+            .font(.caption2)
+            .buttonStyle(.borderless)
+            .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.08))
+        .cornerRadius(8)
+        .padding(.horizontal, 16)
+    }
+
+    private func errorBanner(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+                .font(.caption)
+
+            Text(message)
+                .font(.caption2)
+                .foregroundColor(.red)
+                .lineLimit(3)
+
+            Spacer()
+
+            Button(action: { recorder.clearError() }) {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(10)
+        .background(Color.red.opacity(0.08))
+        .cornerRadius(8)
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Recording View
@@ -211,6 +296,46 @@ struct MenuBarView: View {
 
                 Button("New Recording") {
                     recorder.currentSession = nil
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.horizontal, 16)
+        }
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - Failed View
+
+    private func failedView(message: String) -> some View {
+        VStack(spacing: 12) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                    .font(.title2)
+
+                VStack(alignment: .leading) {
+                    Text("Recording Failed")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+
+            HStack(spacing: 8) {
+                Button("Try Again") {
+                    recorder.currentSession = nil
+                    recorder.clearError()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Open Settings") {
+                    recorder.openScreenRecordingSettings()
                 }
                 .buttonStyle(.bordered)
             }
@@ -381,6 +506,8 @@ struct MenuBarView: View {
     // MARK: - Actions
 
     private func startRecording() async {
+        recorder.clearError()
+
         switch recordMode {
         case .fullScreen:
             await recorder.startRecording()
@@ -391,6 +518,9 @@ struct MenuBarView: View {
                 await recorder.startRecording()
             }
         }
+
+        // If recording started, the popover will be closed by AppDelegate
+        // If it failed, the error banner will show in the current view
     }
 
     private func stopRecording() async {

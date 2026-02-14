@@ -9,9 +9,58 @@ final class ScreenRecorder: ObservableObject {
     @Published var availableWindows: [SCWindow] = []
     @Published var currentSession: RecordingSession?
     @Published var isRecording: Bool = false
+    @Published var errorMessage: String?
+    @Published var permissionStatus: PermissionStatus = .unknown
 
     private let captureEngine = CaptureEngine()
     private var durationTimer: Timer?
+
+    enum PermissionStatus: Equatable {
+        case unknown
+        case granted
+        case denied
+        case checking
+    }
+
+    // MARK: - Permission Check
+
+    /// Check if we have screen recording permission by attempting to list content
+    func checkPermission() async {
+        permissionStatus = .checking
+        errorMessage = nil
+
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            self.availableDisplays = content.displays
+            self.availableWindows = content.windows.filter { window in
+                window.frame.width > 100 && window.frame.height > 100
+                    && window.owningApplication != nil
+                    && window.owningApplication?.bundleIdentifier != Bundle.main.bundleIdentifier
+            }
+
+            if content.displays.isEmpty {
+                permissionStatus = .denied
+                errorMessage = "Screen recording permission required. Open System Settings to grant access."
+            } else {
+                permissionStatus = .granted
+            }
+        } catch {
+            permissionStatus = .denied
+            let nsError = error as NSError
+            if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" || nsError.code == -3801 {
+                errorMessage = "Screen recording permission denied. Please enable it in System Settings."
+            } else {
+                errorMessage = "Cannot access screen content: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Open System Settings to the Screen Recording privacy pane
+    func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     // MARK: - Content Discovery
 
@@ -21,13 +70,17 @@ final class ScreenRecorder: ObservableObject {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             self.availableDisplays = content.displays
             self.availableWindows = content.windows.filter { window in
-                // Filter out tiny windows and system windows
                 window.frame.width > 100 && window.frame.height > 100
                     && window.owningApplication != nil
                     && window.owningApplication?.bundleIdentifier != Bundle.main.bundleIdentifier
             }
+            if !content.displays.isEmpty {
+                permissionStatus = .granted
+                errorMessage = nil
+            }
         } catch {
-            print("Failed to get shareable content: \(error.localizedDescription)")
+            permissionStatus = .denied
+            errorMessage = "Screen recording access needed. Click \"Grant Access\" below."
         }
     }
 
@@ -36,12 +89,18 @@ final class ScreenRecorder: ObservableObject {
     /// Start recording the primary display
     func startRecording(display: SCDisplay? = nil) async {
         guard !isRecording else { return }
+        errorMessage = nil
 
-        // Refresh content
+        // Refresh content and check permission
         await refreshAvailableContent()
 
+        guard permissionStatus == .granted else {
+            errorMessage = "Screen recording permission required. Click \"Grant Access\" to open System Settings."
+            return
+        }
+
         guard let targetDisplay = display ?? availableDisplays.first else {
-            print("No display available for recording")
+            errorMessage = "No display found. Try granting screen recording permission in System Settings."
             return
         }
 
@@ -53,6 +112,9 @@ final class ScreenRecorder: ObservableObject {
         let tempDir = FileManager.default.temporaryDirectory
         let rawURL = tempDir.appendingPathComponent("\(session.id.uuidString)-raw.mp4")
         session.rawVideoURL = rawURL
+
+        // Remove stale file if it exists
+        try? FileManager.default.removeItem(at: rawURL)
 
         // Configure capture
         let config = SCStreamConfiguration()
@@ -74,16 +136,19 @@ final class ScreenRecorder: ObservableObject {
             )
             session.state = .recording
             isRecording = true
+            errorMessage = nil
             startDurationTimer()
         } catch {
             session.state = .failed("Failed to start recording: \(error.localizedDescription)")
-            print("Recording failed: \(error)")
+            self.currentSession = nil
+            errorMessage = "Recording failed: \(error.localizedDescription)"
         }
     }
 
     /// Start recording a specific window
     func startRecording(window: SCWindow) async {
         guard !isRecording else { return }
+        errorMessage = nil
 
         let session = RecordingSession()
         session.state = .preparing
@@ -92,6 +157,8 @@ final class ScreenRecorder: ObservableObject {
         let tempDir = FileManager.default.temporaryDirectory
         let rawURL = tempDir.appendingPathComponent("\(session.id.uuidString)-raw.mp4")
         session.rawVideoURL = rawURL
+
+        try? FileManager.default.removeItem(at: rawURL)
 
         let config = SCStreamConfiguration()
         config.width = Int(window.frame.width) * 2
@@ -111,10 +178,12 @@ final class ScreenRecorder: ObservableObject {
             )
             session.state = .recording
             isRecording = true
+            errorMessage = nil
             startDurationTimer()
         } catch {
             session.state = .failed("Failed to start recording: \(error.localizedDescription)")
-            print("Recording failed: \(error)")
+            self.currentSession = nil
+            errorMessage = "Recording failed: \(error.localizedDescription)"
         }
     }
 
@@ -135,7 +204,13 @@ final class ScreenRecorder: ObservableObject {
             session.state = .complete
         } catch {
             session.state = .failed("Failed to stop recording: \(error.localizedDescription)")
+            errorMessage = "Failed to finalize recording: \(error.localizedDescription)"
         }
+    }
+
+    /// Clear any error state
+    func clearError() {
+        errorMessage = nil
     }
 
     // MARK: - Duration Timer
