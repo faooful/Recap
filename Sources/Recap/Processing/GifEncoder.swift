@@ -19,7 +19,11 @@ struct GifEncoder {
         outputURL: URL,
         frameRate: Int = 12,
         maxWidth: Int = 960,
-        speedMultipliers: [TimeRange: Double]? = nil
+        speedMultipliers: [TimeRange: Double]? = nil,
+        mouseEvents: [MouseEvent]? = nil,
+        displaySize: CGSize? = nil,
+        highlightClicks: Bool = false,
+        annotateSteps: Bool = false
     ) async throws {
         let asset = AVAsset(url: videoURL)
         let duration = try await asset.load(.duration)
@@ -91,7 +95,39 @@ struct GifEncoder {
 
             // Convert to CGImage
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-            guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { continue }
+            guard var cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { continue }
+
+            // Apply click ripple highlights
+            if highlightClicks, let events = mouseEvents, let size = displaySize {
+                let clicks = events.filter { $0.type == .click }
+                for click in clicks {
+                    let timeSinceClick = presentationTime - click.timestamp
+                    guard timeSinceClick >= 0 && timeSinceClick <= 0.4 else { continue }
+                    let progress = CGFloat(timeSinceClick / 0.4)
+                    let scaleX = CGFloat(cgImage.width) / size.width
+                    let scaleY = CGFloat(cgImage.height) / size.height
+                    let imagePos = CGPoint(
+                        x: click.location.x * scaleX,
+                        y: CGFloat(cgImage.height) - click.location.y * scaleY
+                    )
+                    if let enhanced = ClickRenderer.renderClickRipple(on: cgImage, at: imagePos, progress: progress) {
+                        cgImage = enhanced
+                    }
+                }
+            }
+
+            // Apply step number badges
+            if annotateSteps, let events = mouseEvents, let size = displaySize {
+                let steps = StepAnnotator.detectSteps(from: events)
+                for step in steps {
+                    let timeSinceStep = presentationTime - step.timestamp
+                    guard timeSinceStep >= -0.1 && timeSinceStep <= step.duration else { continue }
+                    let progress = CGFloat(timeSinceStep / step.duration)
+                    if let enhanced = StepAnnotator.renderStepBadge(on: cgImage, step: step, displaySize: size, progress: progress) {
+                        cgImage = enhanced
+                    }
+                }
+            }
 
             // Calculate delay for this frame (may be adjusted for speed-up)
             var frameDelay = delayTime

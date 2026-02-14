@@ -132,6 +132,9 @@ final class AutoEnhancer: ObservableObject {
         // Step 2: Export based on format
         status = "Encoding \(settings.outputFormat.displayName)..."
 
+        // Determine display size for coordinate mapping
+        let displaySize = await getDisplaySize(for: rawURL)
+
         switch settings.outputFormat {
         case .gif:
             try await GifEncoder.encode(
@@ -139,7 +142,11 @@ final class AutoEnhancer: ObservableObject {
                 outputURL: outputURL,
                 frameRate: settings.gifFrameRate,
                 maxWidth: 960,
-                speedMultipliers: speedMultipliers
+                speedMultipliers: speedMultipliers,
+                mouseEvents: settings.highlightClicks ? session.mouseEvents : nil,
+                displaySize: displaySize,
+                highlightClicks: settings.highlightClicks,
+                annotateSteps: true
             )
 
         case .mp4:
@@ -153,6 +160,16 @@ final class AutoEnhancer: ObservableObject {
         session.outputURL = outputURL
         progress = 1.0
         status = "Complete"
+    }
+
+    /// Get the video dimensions for coordinate mapping
+    private func getDisplaySize(for videoURL: URL) async -> CGSize {
+        let asset = AVAsset(url: videoURL)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let size = try? await track.load(.naturalSize) else {
+            return CGSize(width: 1920, height: 1080) // fallback
+        }
+        return size
     }
 }
 
