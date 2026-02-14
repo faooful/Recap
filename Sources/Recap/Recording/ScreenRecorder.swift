@@ -57,7 +57,21 @@ final class ScreenRecorder: ObservableObject {
 
     /// Open System Settings to the Screen Recording privacy pane
     func openScreenRecordingSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+        // macOS 15+ (Sequoia) uses the new System Settings URL scheme
+        let urls = [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        ]
+
+        for urlString in urls {
+            if let url = URL(string: urlString) {
+                let opened = NSWorkspace.shared.open(url)
+                if opened { return }
+            }
+        }
+
+        // Fallback: just open Privacy & Security
+        if let url = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity") {
             NSWorkspace.shared.open(url)
         }
     }
