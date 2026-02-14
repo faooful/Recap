@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let recorder = ScreenRecorder()
     let enhancer = AutoEnhancer()
     let shareManager = ShareManager()
+    private let overlayController = RecordingOverlayController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -117,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggleRecording() async {
         if recorder.isRecording {
+            overlayController.hide()
             await recorder.stopRecording()
             updateStatusIcon(recording: false)
 
@@ -127,6 +129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             updateStatusIcon(recording: true)
             await recorder.startRecording()
+            if recorder.isRecording {
+                overlayController.show(recorder: recorder)
+            }
         }
     }
 

@@ -8,6 +8,8 @@ struct PreviewWindow: View {
     @ObservedObject var shareManager: ShareManager
     @ObservedObject private var settings = AppSettings.shared
 
+    @ObservedObject private var history = RecordingHistory.shared
+
     @State private var player: AVPlayer?
     @State private var isProcessing = false
     @State private var processedURL: URL?
@@ -211,6 +213,9 @@ struct PreviewWindow: View {
 
             processedURL = outputURL
             fileSize = ShareManager.formattedFileSize(url: outputURL)
+
+            // Save to history
+            history.add(session: session, outputURL: outputURL, format: settings.outputFormat)
 
             // Auto-copy to clipboard if enabled
             if settings.copyToClipboardAfterExport {

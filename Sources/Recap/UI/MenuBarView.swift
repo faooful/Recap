@@ -7,12 +7,14 @@ struct MenuBarView: View {
     @ObservedObject var enhancer: AutoEnhancer
     @ObservedObject var shareManager: ShareManager
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var history = RecordingHistory.shared
 
     var onShowPreview: (RecordingSession) -> Void
 
     @State private var selectedWindow: SCWindow?
     @State private var recordMode: RecordMode = .fullScreen
     @State private var showSettings = false
+    @State private var showHistory = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +27,8 @@ struct MenuBarView: View {
                 recordingView
             } else if let session = recorder.currentSession, session.state == .complete {
                 completedView(session: session)
+            } else if showHistory {
+                historyView
             } else {
                 setupView
             }
@@ -251,6 +255,95 @@ struct MenuBarView: View {
         .padding(.horizontal, 16)
     }
 
+    // MARK: - History View
+
+    private var historyView: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Recent Recordings")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Spacer()
+                Button("Back") { showHistory = false }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+
+            if history.entries.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "film.stack")
+                        .font(.title)
+                        .foregroundColor(.secondary)
+                    Text("No recordings yet")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(height: 120)
+            } else {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(history.entries) { entry in
+                            historyRow(entry: entry)
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func historyRow(entry: HistoryEntry) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: entry.format == .gif ? "photo.badge.arrow.down" : "film")
+                .foregroundColor(.secondary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(entry.formattedDuration)
+                    Text("•")
+                    Text(entry.formattedSize)
+                    Text("•")
+                    Text(entry.formattedDate)
+                }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            // Quick copy
+            Button(action: {
+                _ = shareManager.copyToClipboard(fileURL: entry.outputURL)
+            }) {
+                Image(systemName: "doc.on.clipboard")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Copy to clipboard")
+
+            // Reveal in Finder
+            Button(action: {
+                shareManager.revealInFinder(fileURL: entry.outputURL)
+            }) {
+                Image(systemName: "folder")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Reveal in Finder")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
     // MARK: - Footer
 
     private var footer: some View {
@@ -264,6 +357,13 @@ struct MenuBarView: View {
                 SettingsView()
                     .frame(width: 300, height: 400)
             }
+
+            Button(action: { showHistory.toggle() }) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Recording history")
 
             Spacer()
 

@@ -98,7 +98,7 @@ final class AppSettings: ObservableObject {
 
 // MARK: - Output Format
 
-enum OutputFormat: String, CaseIterable, Identifiable {
+enum OutputFormat: String, CaseIterable, Identifiable, Codable {
     case gif = "gif"
     case mp4 = "mp4"
 
